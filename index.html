@@ -110,6 +110,10 @@ textarea{min-height:140px;line-height:1.6;resize:vertical;}
       <label>Nome *</label><input type="text" id="pac-nome" placeholder="Nome completo">
       <label>Nascimento</label><input type="date" id="pac-nasc">
       <label>Diagnóstico</label><input type="text" id="pac-diag" placeholder="Ex: Afasia de Broca pós-AVC">
+      <label>CPF</label><input type="text" id="pac-cpf" placeholder="000.000.000-00">
+      <label>Telefone do paciente</label><input type="tel" id="pac-tel" placeholder="(41) 99999-9999">
+      <label>Nome do responsável</label><input type="text" id="pac-resp-nome" placeholder="Nome do responsável">
+      <label>Telefone do responsável</label><input type="tel" id="pac-resp-tel" placeholder="(41) 99999-9999">
       <label>Observações</label><textarea id="pac-obs" style="min-height:60px" placeholder="Informações adicionais..."></textarea>
       <button class="btn btn-p" onclick="cadastrar()">➕ Cadastrar</button>
       <div class="msg-ok" id="ok-cad">✅ Cadastrado!</div>
@@ -124,6 +128,16 @@ textarea{min-height:140px;line-height:1.6;resize:vertical;}
       <select id="sel-hist" onchange="verHist()"><option value="">— Selecione paciente —</option></select>
     </div>
     <div id="lista-hist"><div class="vazio"><big>📂</big>Selecione um paciente</div></div>
+    <div id="box-anot" style="display:none">
+      <div class="card" style="margin-top:10px;border:2px dashed var(--roxo-borda)">
+        <h2>🔒 Minhas anotações pessoais</h2>
+        <p style="font-size:11px;color:#888;margin-bottom:10px">Visível somente para você. Não aparece para família.</p>
+        <textarea id="anot-texto" style="min-height:100px" placeholder="Anotações clínicas, observações particulares..."></textarea>
+        <button class="btn btn-s" onclick="pedeSenhaAnot()">🔒 Salvar anotação</button>
+        <div class="msg-ok" id="ok-anot">✅ Anotação salva!</div>
+        <div id="lista-anot" style="margin-top:10px"></div>
+      </div>
+    </div>
   </div>
 
   <div id="pg-rel" class="tela">
@@ -182,10 +196,8 @@ textarea{min-height:140px;line-height:1.6;resize:vertical;}
     </div>
     <table class="doc-tab">
       <tr><td>Paciente</td><td id="d-nome" style="font-size:15px;font-weight:700"></td></tr>
-      <tr><td>Diagnóstico</td><td id="d-diag"></td></tr>
       <tr><td>Data</td><td id="d-data" style="font-weight:600"></td></tr>
-      <tr><td>Horário</td><td id="d-hora"></td></tr>
-      <tr><td style="border:none">Duração</td><td id="d-dur" style="border:none"></td></tr>
+      <tr><td style="border:none">Horário</td><td id="d-hora" style="border:none"></td></tr>
     </table>
     <div class="doc-ev-titulo">Evolução Clínica</div>
     <div class="doc-ev-texto" id="d-ev"></div>
@@ -231,7 +243,7 @@ textarea{min-height:140px;line-height:1.6;resize:vertical;}
 </div>
 
 <script>
-var URL_SC = "https://script.google.com/macros/s/AKfycbw3Vv8Y3ETukn5P7p_6SfRiWM82fQcI6VuHM_hV3OFd7P9ktReJ279f9TSNYUVZSYLf/exec";
+var URL_SC = "https://script.google.com/macros/s/AKfycbwWR2HAfdNS9u8BOk7F0RLqf769KT9nbduOk3qWvMyGaTsBIg0zMZBy9lz-xi2rlGKo/exec";
 var BASE = "https://fonocarolinegil.github.io/Prontuario/";
 var MESES = ["","Janeiro","Fevereiro","Marco","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
 var SENHA = "0210";
@@ -337,12 +349,20 @@ function cadastrar() {
   req({action:"cadastrar_paciente", nome:nome,
     data_nasc:document.getElementById("pac-nasc").value,
     diagnostico:document.getElementById("pac-diag").value.trim(),
+    cpf:document.getElementById("pac-cpf").value.trim(),
+    telefone:document.getElementById("pac-tel").value.trim(),
+    resp_nome:document.getElementById("pac-resp-nome").value.trim(),
+    resp_tel:document.getElementById("pac-resp-tel").value.trim(),
     observacoes:document.getElementById("pac-obs").value.trim()
   }).then(function() {
     showOk("ok-cad");
     document.getElementById("pac-nome").value = "";
     document.getElementById("pac-nasc").value = "";
     document.getElementById("pac-diag").value = "";
+    document.getElementById("pac-cpf").value = "";
+    document.getElementById("pac-tel").value = "";
+    document.getElementById("pac-resp-nome").value = "";
+    document.getElementById("pac-resp-tel").value = "";
     document.getElementById("pac-obs").value = "";
     carregarPacs();
   }).catch(function(e) { showEr("er-cad", "Erro: " + e.message); });
@@ -384,6 +404,8 @@ function verHist() {
               evolucao:ev.evolucao, linha:ev.linha, idx:i, pac_id:id};
     });
     renderHist(el, id);
+    document.getElementById("box-anot").style.display = "block";
+    carregarAnotacoes(id);
   }).catch(function() { el.innerHTML = '<div class="msg-er" style="display:block">Erro ao carregar.</div>'; });
 }
 
@@ -436,10 +458,8 @@ function abrirDoc(idx, deFam) {
   document.getElementById("tela-fam").style.display = "none";
   document.getElementById("tela-doc").style.display = "block";
   document.getElementById("d-nome").textContent = pac.nome;
-  document.getElementById("d-diag").textContent = pac.diagnostico || "—";
   document.getElementById("d-data").textContent = ev.data;
   document.getElementById("d-hora").textContent = "Entrada: " + fmtH(ev.hora_entrada) + "   |   Saída: " + fmtH(ev.hora_saida);
-  document.getElementById("d-dur").textContent = dur || "Não registrada";
   document.getElementById("d-ev").textContent = ev.evolucao || "";
   document.getElementById("d-assin").src = document.getElementById("assin-src").src;
   document.getElementById("d-emissao").textContent = "Emitido em " + new Date().toLocaleDateString("pt-BR");
@@ -456,7 +476,18 @@ function voltarDeFam() {
   window.scrollTo(0, 0);
 }
 
-function fmtH(h) { return (!h || h === "—") ? "—" : String(h); }
+function fmtH(h) {
+  if (!h || h === "—") return "—";
+  var s = String(h);
+  // Handle ISO format like "1899-12-30T08:04:28.000Z"
+  if (s.indexOf("T") > -1) {
+    var t = s.split("T")[1];
+    if (t) { var parts = t.split(":"); return parts[0] + ":" + parts[1]; }
+  }
+  // Handle HH:MM:SS
+  if (s.indexOf(":") > -1) { var parts = s.split(":"); return parts[0] + ":" + parts[1]; }
+  return s;
+}
 
 function calcDur(e, s) {
   if (!e || !s || e === "—" || s === "—") return null;
@@ -488,6 +519,7 @@ function okSenha() {
   if (!acaoSenha) return;
   if (acaoSenha.acao === 1) abreEdit(acaoSenha.idx, acaoSenha.pacId);
   if (acaoSenha.acao === 2) excluirEv(acaoSenha.idx, acaoSenha.pacId);
+  if (acaoSenha.acao === 99) salvarAnotacao(acaoSenha.pacId);
 }
 
 function abreEdit(idx, pacId) {
@@ -618,6 +650,40 @@ function carregarFam(pacId) {
     }
     el.innerHTML=html;
   }).catch(function(){document.getElementById("fam-lista").innerHTML='<div class="msg-er" style="display:block">Erro ao carregar.</div>';});
+}
+
+// ANOTAÇÕES PESSOAIS
+function pedeSenhaAnot() {
+  acaoSenha = {acao:99, idx:0, pacId: document.getElementById("sel-hist").value};
+  document.getElementById("inp-senha").value = "";
+  document.getElementById("er-senha").style.display = "none";
+  document.getElementById("ov-senha").className = "overlay on";
+  setTimeout(function() { document.getElementById("inp-senha").focus(); }, 100);
+}
+
+function salvarAnotacao(pacId) {
+  var texto = document.getElementById("anot-texto").value.trim();
+  if (!texto) { alert("Escreva a anotação."); return; }
+  var agora = new Date().toLocaleDateString("pt-BR");
+  req({action:"salvar_anotacao", paciente_id:pacId, texto:texto, data:agora}).then(function() {
+    showOk("ok-anot");
+    document.getElementById("anot-texto").value = "";
+    carregarAnotacoes(pacId);
+  }).catch(function(e) { alert("Erro: " + e.message); });
+}
+
+function carregarAnotacoes(pacId) {
+  get({action:"listar_anotacoes", paciente_id:pacId}).then(function(d) {
+    var lista = d.anotacoes || [];
+    var el = document.getElementById("lista-anot");
+    if (!lista.length) { el.innerHTML = '<div style="font-size:12px;color:#aaa;text-align:center;padding:10px">Nenhuma anotação ainda</div>'; return; }
+    el.innerHTML = lista.map(function(a, i) {
+      return '<div style="background:#fffde7;border-radius:7px;padding:10px;margin-bottom:6px;border:1px solid #FFE082">'
+        + '<div style="font-size:11px;color:#888;margin-bottom:4px">📅 ' + a.data + '</div>'
+        + '<div style="font-size:13px;line-height:1.5;white-space:pre-wrap">' + a.texto + '</div>'
+        + '</div>';
+    }).join("");
+  }).catch(function() {});
 }
 
 function showOk(id){var e=document.getElementById(id);e.style.display="block";setTimeout(function(){e.style.display="none";},3000);}
