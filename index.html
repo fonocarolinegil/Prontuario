@@ -329,11 +329,14 @@ function renderPacs() {
     var id = p.id.replace(/'/g, "");
     var nome = p.nome.replace(/'/g,"").replace(/"/g,"");
     var diag = (p.diagnostico||"").replace(/'/g,"").replace(/"/g,"");
-    html += '<div class="pac-item" onclick="selPac(' + i + ')">';
-    html += '<div class="av">' + p.nome.charAt(0).toUpperCase() + '</div>';
-    html += '<div><div style="font-size:14px;font-weight:700">' + p.nome + '</div>';
+    html += '<div class="pac-item" style="cursor:default">';
+    html += '<div class="av" onclick="selPac(' + i + ')" style="cursor:pointer">' + p.nome.charAt(0).toUpperCase() + '</div>';
+    html += '<div onclick="selPac(' + i + ')" style="cursor:pointer;flex:1"><div style="font-size:14px;font-weight:700">' + p.nome + '</div>';
     html += '<div style="font-size:11px;color:#777;margin-top:2px">' + (p.diagnostico || "Sem diagnóstico") + '</div></div>';
-    html += '<div style="margin-left:auto;color:#9B6FD0;font-size:18px">›</div></div>';
+    html += '<div style="display:flex;align-items:center;gap:6px">';
+    html += '<span onclick="selPac(' + i + ')" style="color:#9B6FD0;font-size:18px;cursor:pointer">›</span>';
+    html += '<button class="btn btn-d btn-sm" onclick="excluirPac(' + i + ')" style="padding:4px 8px;font-size:11px">🗑️</button>';
+    html += '</div></div>';
   }
   el.innerHTML = html;
 }
@@ -355,6 +358,15 @@ function trocar() {
   document.getElementById("box-sem-pac").style.display = "block";
   document.getElementById("box-com-pac").style.display = "none";
   mudarAba("pac");
+}
+
+function excluirPac(idx) {
+  var p = todosP[idx];
+  if (!confirm("Excluir paciente " + p.nome + "? Todas as evoluções serão perdidas. Esta ação não pode ser desfeita.")) return;
+  req({action:"excluir_paciente", paciente_id:p.id}).then(function() {
+    carregarPacs();
+    if (pacSel && pacSel.id === p.id) trocar();
+  }).catch(function(e) { alert("Erro: " + e.message); });
 }
 
 function cadastrar() {
@@ -428,8 +440,9 @@ function renderHist(el, pacId) {
   var grupos = {};
   for (var i = 0; i < histEvs.length; i++) {
     var ev = histEvs[i];
-    var p = String(ev.data).split("/");
-    var k = p.length === 3 ? (p[2] + "/" + p[1]) : String(ev.data);
+    var dataFormatada = fmtData(ev.data);
+    var p = String(dataFormatada).split("/");
+    var k = p.length === 3 ? (p[2] + "/" + p[1]) : String(dataFormatada);
     if (!grupos[k]) grupos[k] = [];
     grupos[k].push(i);
   }
@@ -446,7 +459,7 @@ function renderHist(el, pacId) {
       var ev = histEvs[idx];
       var dur = calcDur(ev.hora_entrada, ev.hora_saida);
       html += '<div class="dia-item" onclick="abrirDoc(' + idx + ',false)">';
-      html += '<div><div class="dia-data">' + ev.data + '</div>';
+      html += '<div><div class="dia-data">' + fmtData(ev.data) + '</div>';
       html += '<div class="dia-hora">🕐 ' + fmtH(ev.hora_entrada) + ' → ' + fmtH(ev.hora_saida) + (dur ? ' · ' + dur : '') + '</div></div>';
       html += '<div class="dia-acoes">';
       html += '<button class="btn btn-s btn-sm" data-idx="' + idx + '" data-pac="' + pacId + '" data-acao="1" onclick="event.stopPropagation();clicarSenha(this)">✏️</button>';
@@ -472,7 +485,7 @@ function abrirDoc(idx, deFam) {
   document.getElementById("tela-fam").style.display = "none";
   document.getElementById("tela-doc").style.display = "block";
   document.getElementById("d-nome").textContent = pac.nome;
-  document.getElementById("d-data").textContent = ev.data;
+  document.getElementById("d-data").textContent = fmtData(ev.data);
   document.getElementById("d-hora").textContent = "Entrada: " + fmtH(ev.hora_entrada) + "   |   Saída: " + fmtH(ev.hora_saida);
   document.getElementById("d-ev").textContent = ev.evolucao || "";
   document.getElementById("d-assin").src = document.getElementById("assin-src").src;
@@ -491,15 +504,33 @@ function voltarDeFam() {
 }
 
 function fmtH(h) {
-  if (!h || h === "—") return "—";
+  if (!h || h === "—" || h === "") return "—";
   var s = String(h);
-  // Handle ISO format like "1899-12-30T08:04:28.000Z"
   if (s.indexOf("T") > -1) {
     var t = s.split("T")[1];
-    if (t) { var parts = t.split(":"); return parts[0] + ":" + parts[1]; }
+    if (t) { var p = t.split(":"); return p[0] + ":" + p[1]; }
   }
-  // Handle HH:MM:SS
-  if (s.indexOf(":") > -1) { var parts = s.split(":"); return parts[0] + ":" + parts[1]; }
+  if (s.indexOf(":") > -1) { var p = s.split(":"); return p[0] + ":" + p[1]; }
+  return s;
+}
+
+function fmtData(d) {
+  if (!d) return "—";
+  var s = String(d);
+  // If it's an ISO timestamp like "2026-07-07T03:00:00.000Z", convert to pt-BR
+  if (s.indexOf("T") > -1) {
+    try {
+      var dt = new Date(s);
+      return dt.toLocaleDateString("pt-BR", {timeZone:"America/Sao_Paulo"});
+    } catch(e) { return s; }
+  }
+  // If already dd/mm/yyyy, return as is
+  if (s.indexOf("/") > -1) return s;
+  // If yyyy-mm-dd
+  if (s.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    var p = s.split("-");
+    return p[2] + "/" + p[1] + "/" + p[0];
+  }
   return s;
 }
 
@@ -564,7 +595,7 @@ function okEdit() {
 }
 function excluirEv(idx, pacId) {
   var ev = histEvs[idx]; if (!ev) return;
-  if (!confirm("Excluir evolução de " + ev.data + "?")) return;
+  if (!confirm("Excluir evolução de " + fmtData(ev.data) + "?")) return;
   req({action:"excluir_evolucao", paciente_id:pacId, linha:ev.linha})
   .then(function() { verHist(); })
   .catch(function(e) { alert("Erro: " + e.message); });
@@ -653,8 +684,9 @@ function carregarFam(pacId) {
     var grupos={};
     for (var i=0;i<famEvs.length;i++) {
       var ev=famEvs[i];
-      var p=String(ev.data).split("/");
-      var k=p.length===3?(p[2]+"/"+p[1]):String(ev.data);
+      var dataFmt=fmtData(ev.data);
+      var p=String(dataFmt).split("/");
+      var k=p.length===3?(p[2]+"/"+p[1]):String(dataFmt);
       if(!grupos[k])grupos[k]=[];
       grupos[k].push(i);
     }
@@ -666,7 +698,7 @@ function carregarFam(pacId) {
       var idxs=grupos[k];
       for (var d=0;d<idxs.length;d++) {
         var idx=idxs[d];var ev=famEvs[idx];var dur=calcDur(ev.hora_entrada,ev.hora_saida);
-        html+='<div class="dia-item" onclick="abrirDoc('+idx+',true)"><div><div class="dia-data">'+ev.data+'</div><div class="dia-hora">🕐 '+fmtH(ev.hora_entrada)+' → '+fmtH(ev.hora_saida)+(dur?' · '+dur:'')+'</div></div><span style="color:#9B6FD0;font-size:20px">›</span></div>';
+        html+='<div class="dia-item" onclick="abrirDoc('+idx+',true)"><div><div class="dia-data">'+fmtData(ev.data)+'</div><div class="dia-hora">🕐 '+fmtH(ev.hora_entrada)+' → '+fmtH(ev.hora_saida)+(dur?' · '+dur:'')+'</div></div><span style="color:#9B6FD0;font-size:20px">›</span></div>';
       }
       html+='</div>';
     }
