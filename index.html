@@ -79,6 +79,7 @@ textarea{min-height:140px;line-height:1.6;resize:vertical;}
     <div class="aba on" id="tab-ev" onclick="mudarAba('ev')">✍️ Evolução</div>
     <div class="aba" id="tab-pac" onclick="mudarAba('pac')">👥 Pacientes</div>
     <div class="aba" id="tab-hist" onclick="mudarAba('hist')">📂 Histórico</div>
+    <div class="aba" id="tab-anot" onclick="mudarAba('anot')">🔒 Anotações</div>
     <div class="aba" id="tab-rel" onclick="mudarAba('rel')">📊 Relatório</div>
     <div class="aba" id="tab-cfg" onclick="mudarAba('cfg')">⚙️ Config</div>
   </div>
@@ -106,14 +107,7 @@ textarea{min-height:140px;line-height:1.6;resize:vertical;}
         <div class="msg-ok" id="ok-ev">✅ Salvo!</div>
         <div class="msg-er" id="er-ev"></div>
       </div>
-      <div class="card" style="border:2px dashed var(--roxo-borda);margin-top:4px">
-        <h2>🔒 Minhas anotações pessoais</h2>
-        <p style="font-size:11px;color:#888;margin-bottom:8px">Não aparece para família ou paciente.</p>
-        <div id="lista-anot-ev" style="margin-bottom:10px"></div>
-        <textarea id="anot-texto-ev" style="min-height:80px" placeholder="Nova anotação..."></textarea>
-        <button class="btn btn-s" onclick="pedeSenhaAnotEv()">🔒 Salvar anotação</button>
-        <div class="msg-ok" id="ok-anot-ev">✅ Anotação salva!</div>
-      </div>
+
     </div>
   </div>
 
@@ -141,16 +135,22 @@ textarea{min-height:140px;line-height:1.6;resize:vertical;}
       <select id="sel-hist" onchange="verHist()"><option value="">— Selecione paciente —</option></select>
     </div>
     <div id="lista-hist"><div class="vazio"><big>📂</big>Selecione um paciente</div></div>
-    <div id="box-anot" style="display:none">
-      <div class="card" style="margin-top:10px;border:2px dashed var(--roxo-borda)">
-        <h2>🔒 Minhas anotações pessoais</h2>
-        <p style="font-size:11px;color:#888;margin-bottom:10px">Visível somente para você. Não aparece para família.</p>
-        <textarea id="anot-texto" style="min-height:100px" placeholder="Anotações clínicas, observações particulares..."></textarea>
-        <button class="btn btn-s" onclick="pedeSenhaAnot()">🔒 Salvar anotação</button>
-        <div class="msg-ok" id="ok-anot">✅ Anotação salva!</div>
-        <div id="lista-anot" style="margin-top:10px"></div>
-      </div>
+  </div>
+
+  <div id="pg-anot" class="tela">
+    <div class="card" style="margin-bottom:10px">
+      <h2>🔒 Minhas anotações</h2>
+      <p style="font-size:11px;color:#888;margin-bottom:8px">Somente para você. Nunca aparece no link da família.</p>
+      <select id="sel-anot" onchange="verAnot()"><option value="">— Selecione paciente —</option></select>
     </div>
+    <div id="box-anot-nova" class="card" style="display:none;margin-bottom:10px;border:2px dashed var(--roxo-borda)">
+      <h2>Nova anotação</h2>
+      <textarea id="anot-nova" style="min-height:100px" placeholder="Observações particulares, hipóteses, lembretes..."></textarea>
+      <button class="btn btn-p" onclick="salvarAnotPag()">💾 Salvar anotação</button>
+      <div class="msg-ok" id="ok-anot-pag">✅ Anotação salva!</div>
+      <div class="msg-er" id="er-anot-pag"></div>
+    </div>
+    <div id="lista-anot-pag"><div class="vazio"><big>🔒</big>Selecione um paciente</div></div>
   </div>
 
   <div id="pg-rel" class="tela">
@@ -310,14 +310,15 @@ function sair() {
 }
 
 function mudarAba(id) {
-  var lista = ["ev","pac","hist","rel","cfg"];
+  var lista = ["ev","pac","hist","anot","rel","cfg"];
   for (var i = 0; i < lista.length; i++) {
     document.getElementById("pg-" + lista[i]).className = "tela";
     document.getElementById("tab-" + lista[i]).className = "aba";
   }
   document.getElementById("pg-" + id).className = "tela on";
   document.getElementById("tab-" + id).className = "aba on";
-  if (id === "hist" || id === "rel" || id === "cfg") preencherSelects();
+  if (id === "hist" || id === "rel" || id === "cfg" || id === "anot") preencherSelects();
+  if (id === "anot" && pacSel && !document.getElementById("sel-anot").value) { document.getElementById("sel-anot").value = pacSel.id; verAnot(); }
 }
 
 function req(dados) {
@@ -383,7 +384,6 @@ function selPac(idx) {
   document.getElementById("nome-sel").textContent = p.nome;
   document.getElementById("diag-sel").textContent = p.diagnostico || "—";
   mudarAba("ev");
-  carregarAnotacoesEv(p.id);
 }
 
 function trocar() {
@@ -458,13 +458,11 @@ function verHist() {
   if (!id) { el.innerHTML = '<div class="vazio"><big>📂</big>Selecione um paciente</div>'; return; }
   el.innerHTML = '<div class="spin">Carregando...</div>';
   get({action:"listar_evolucoes", paciente_id:id}).then(function(d) {
-    histEvs = (d.evolucoes || []).map(function(ev, i) {
+    histEvs = (d.evolucoes || []).map(normalizarEv).map(function(ev, i) {
       return {data:ev.data, hora_entrada:ev.hora_entrada, hora_saida:ev.hora_saida,
               evolucao:ev.evolucao, linha:ev.linha, idx:i, pac_id:id};
     });
     renderHist(el, id);
-    document.getElementById("box-anot").style.display = "block";
-    carregarAnotacoes(id);
   }).catch(function() { el.innerHTML = '<div class="msg-er" style="display:block">Erro ao carregar.</div>'; });
 }
 
@@ -534,6 +532,16 @@ function voltarDeFam() {
     document.getElementById("tela-app").style.display = "block";
   }
   window.scrollTo(0, 0);
+}
+
+function ehHora(v){var t=String(v==null?"":v).trim();return t===""||t==="—"||/^\d{1,2}:\d{2}/.test(t)||t.indexOf("T")>-1&&!isNaN(new Date(t));}
+// Linhas antigas da planilha: Data | Horário | Atividades | Evolução
+function normalizarEv(ev){
+  if(ehHora(ev.hora_saida))return ev;
+  var n={};for(var k in ev)n[k]=ev[k];
+  n.evolucao="Atividades realizadas: "+ev.hora_saida+(ev.evolucao?"\n\nEvolução: "+ev.evolucao:"");
+  n.hora_saida="—";
+  return n;
 }
 
 function fmtH(h) {
@@ -611,11 +619,12 @@ function okSenha() {
     return;
   }
   if (digitada !== senhaGuardada()) { showEr("er-senha", "Senha incorreta"); return; }
+  var a = acaoSenha;
   fecharSenha();
-  if (!acaoSenha) return;
-  if (acaoSenha.acao === 1) abreEdit(acaoSenha.idx, acaoSenha.pacId);
-  if (acaoSenha.acao === 2) excluirEv(acaoSenha.idx, acaoSenha.pacId);
-  if (acaoSenha.acao === 99) salvarAnotacao(acaoSenha.pacId, acaoSenha.origem || "hist");
+  if (!a) return;
+  if (a.acao === 1) abreEdit(a.idx, a.pacId);
+  if (a.acao === 2) excluirEv(a.idx, a.pacId);
+  if (a.acao === 99) salvarAnotacao(a.pacId, a.origem || "hist");
 }
 
 function abreEdit(idx, pacId) {
@@ -661,7 +670,7 @@ function gerarRel() {
   p.then(function(lista) {
     return Promise.all(lista.map(function(pac) {
       return get({action:"listar_evolucoes", paciente_id:pac.id}).then(function(d) {
-        var evs = (d.evolucoes||[]).filter(function(ev) {
+        var evs = (d.evolucoes||[]).map(normalizarEv).filter(function(ev) {
           var pts = String(ev.data).split("/");
           return pts.length===3 && parseInt(pts[1])===mes && parseInt(pts[2])===ano;
         });
@@ -692,7 +701,7 @@ function fmtMin(m){return m>=60?Math.floor(m/60)+"h"+(m%60?" "+m%60+"min":""):m+
 function salvarUrl(){var u=document.getElementById("cfg-url").value.trim();if(!u){alert("Cole a URL.");return;}sc=u;localStorage.setItem("pron_url",u);showOk("ok-url");document.getElementById("cfg-ok").style.display="block";carregarPacs();}
 
 function preencherSelects(){
-  var ids=["sel-hist","sel-qr","ev-sel-pac"];
+  var ids=["sel-hist","sel-qr","ev-sel-pac","sel-anot"];
   for(var i=0;i<ids.length;i++){
     var s=document.getElementById(ids[i]);if(!s)continue;
     var v=s.value;
@@ -726,7 +735,7 @@ function carregarFam(codigo) {
       '<div style="font-size:11px;color:#aaa;margin-top:7px">Início: ' + (famPac.data_inicio || "—") + '</div>';
     return famDados;
   }).then(function(de) {
-    famEvs = (de.evolucoes || []).map(function(ev, i) {
+    famEvs = (de.evolucoes || []).map(normalizarEv).map(function(ev, i) {
       return {data:ev.data, hora_entrada:ev.hora_entrada, hora_saida:ev.hora_saida, evolucao:ev.evolucao, idx:i};
     });
     var el = document.getElementById("fam-lista");
@@ -756,7 +765,55 @@ function carregarFam(codigo) {
   }).catch(function(e){document.getElementById("fam-lista").innerHTML='<div class="msg-er" style="display:block">'+e.message+'</div>';});
 }
 
-// ANOTAÇÕES PESSOAIS
+// ANOTAÇÕES PESSOAIS (aba própria)
+function escHtml(t){return String(t==null?"":t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+
+function verAnot() {
+  var id = document.getElementById("sel-anot").value;
+  var el = document.getElementById("lista-anot-pag");
+  var box = document.getElementById("box-anot-nova");
+  if (!id) { box.style.display = "none"; el.innerHTML = '<div class="vazio"><big>🔒</big>Selecione um paciente</div>'; return; }
+  box.style.display = "block";
+  el.innerHTML = '<div class="spin">Carregando...</div>';
+  get({action:"listar_anotacoes", paciente_id:id}).then(function(d) {
+    var lista = d.anotacoes || [];
+    if (!lista.length) { el.innerHTML = '<div class="vazio"><big>📝</big>Nenhuma anotação ainda</div>'; return; }
+    var grupos = {}, ordem = [];
+    for (var i = 0; i < lista.length; i++) {
+      var dt = fmtData(lista[i].data); var p = String(dt).split("/");
+      var k = p.length === 3 ? (p[2] + "/" + p[1]) : String(dt);
+      if (!grupos[k]) { grupos[k] = []; ordem.push(k); }
+      grupos[k].push(lista[i]);
+    }
+    ordem.sort().reverse();
+    var html = "";
+    for (var c = 0; c < ordem.length; c++) {
+      var pts = ordem[c].split("/");
+      html += '<div class="mes"><div class="mes-titulo">📅 ' + (MESES[parseInt(pts[1])] || ordem[c]) + ' ' + (pts[1] ? pts[0] : "") + '</div>';
+      var g = grupos[ordem[c]];
+      for (var j = 0; j < g.length; j++) {
+        html += '<div style="background:#fffde7;border-radius:8px;padding:10px 12px;margin-bottom:6px;border:1px solid #FFE082">'
+          + '<div style="font-size:11px;color:#888;margin-bottom:4px">📅 ' + escHtml(fmtData(g[j].data)) + '</div>'
+          + '<div style="font-size:13px;line-height:1.5;white-space:pre-wrap">' + escHtml(g[j].texto) + '</div></div>';
+      }
+      html += '</div>';
+    }
+    el.innerHTML = html;
+  }).catch(function(e) { el.innerHTML = '<div class="msg-er" style="display:block">Erro ao carregar anotações: ' + escHtml(e.message) + '</div>'; });
+}
+
+function salvarAnotPag() {
+  var id = document.getElementById("sel-anot").value;
+  var texto = document.getElementById("anot-nova").value.trim();
+  if (!id) { alert("Selecione o paciente."); return; }
+  if (!texto) { alert("Escreva a anotação."); return; }
+  req({action:"salvar_anotacao", paciente_id:id, texto:texto, data:new Date().toLocaleDateString("pt-BR")}).then(function() {
+    document.getElementById("anot-nova").value = "";
+    showOk("ok-anot-pag");
+    verAnot();
+  }).catch(function(e) { showEr("er-anot-pag", "Erro: " + e.message); });
+}
+
 function pedeSenhaAnotEv() {
   if (!pacSel) return;
   acaoSenha = {acao:99, idx:0, pacId: pacSel.id, origem: "ev"};
