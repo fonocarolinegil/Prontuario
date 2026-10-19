@@ -181,6 +181,11 @@ textarea{min-height:140px;line-height:1.6;resize:vertical;}
       <div class="msg-ok" id="ok-url">✅ Salvo!</div>
     </div>
     <div class="card">
+      <h2>Segurança</h2>
+      <p style="font-size:11px;color:#888;margin-bottom:8px">A senha fica guardada só neste aparelho. Use "Sair" em computadores que não são seus.</p>
+      <button class="btn btn-s" onclick="sair()">🚪 Sair deste aparelho</button>
+    </div>
+    <div class="card">
       <h2>Link para família</h2>
       <select id="sel-qr" onchange="gerarLink()"><option value="">— Selecione paciente —</option></select>
       <div id="link-area" style="display:none;margin-top:10px">
@@ -259,7 +264,7 @@ textarea{min-height:140px;line-height:1.6;resize:vertical;}
 var URL_SC = "https://script.google.com/macros/s/AKfycbwWR2HAfdNS9u8BOk7F0RLqf769KT9nbduOk3qWvMyGaTsBIg0zMZBy9lz-xi2rlGKo/exec";
 var BASE = "https://fonocarolinegil.github.io/Prontuario/";
 var MESES = ["","Janeiro","Fevereiro","Marco","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
-var SENHA = "0210";
+function senhaGuardada(){try{return localStorage.getItem("pron_senha")||"";}catch(e){return "";}}
 var sc = localStorage.getItem("pron_url") || URL_SC;
 var pacSel = null;
 var todosP = [];
@@ -275,7 +280,7 @@ window.onload = function() {
   if (modo === "familia") {
     document.getElementById("tela-app").style.display = "none";
     document.getElementById("tela-fam").style.display = "block";
-    carregarFam(params.get("paciente"));
+    carregarFam(params.get("codigo"));
     return;
   }
   if (sc) {
@@ -286,8 +291,23 @@ window.onload = function() {
   document.getElementById("ev-data").value = hoje.toISOString().split("T")[0];
   document.getElementById("rel-mes").value = String(hoje.getMonth() + 1);
   document.getElementById("rel-ano").value = String(hoje.getFullYear());
-  carregarPacs();
+  if (senhaGuardada()) carregarPacs(); else pedirLogin();
 };
+
+function pedirLogin(msg) {
+  acaoSenha = {acao:"login"};
+  document.getElementById("inp-senha").value = "";
+  document.getElementById("er-senha").style.display = "none";
+  document.getElementById("ov-senha").className = "overlay on";
+  if (msg) showEr("er-senha", msg);
+  setTimeout(function() { document.getElementById("inp-senha").focus(); }, 100);
+}
+
+function sair() {
+  try { localStorage.removeItem("pron_senha"); } catch(e) {}
+  todosP = []; renderPacs(); preencherSelects();
+  pedirLogin();
+}
 
 function mudarAba(id) {
   var lista = ["ev","pac","hist","rel","cfg"];
@@ -301,19 +321,32 @@ function mudarAba(id) {
 }
 
 function req(dados) {
-  return fetch(sc, {method:"POST", body:JSON.stringify(dados)}).then(function(r){return r.json();});
+  var corpo = {};
+  for (var k in dados) corpo[k] = dados[k];
+  if (corpo.action !== "familia") corpo.senha = senhaGuardada();
+  return fetch(sc, {method:"POST", body:JSON.stringify(corpo)})
+    .then(function(r){ return r.json(); }, function(){ throw new Error("Sem conexão com o Apps Script. Confira se a nova versão foi publicada."); })
+    .then(function(d){
+      if (d && d.erro) {
+        if (d.erro === "SENHA_INVALIDA") {
+          try { localStorage.removeItem("pron_senha"); } catch(e) {}
+          if (corpo.action !== "verificar_senha") pedirLogin("Senha incorreta");
+          throw new Error("Senha incorreta");
+        }
+        throw new Error(d.erro);
+      }
+      return d;
+    });
 }
-function get(p) {
-  return fetch(sc + "?" + new URLSearchParams(p)).then(function(r){return r.json();});
-}
+function get(p) { return req(p); }
 
 function carregarPacs() {
   get({action:"listar_pacientes"}).then(function(d) {
     todosP = d.pacientes || [];
     renderPacs();
     preencherSelects();
-  }).catch(function() {
-    document.getElementById("lista-pac").innerHTML = '<div class="vazio"><big>⚙️</big>Configure a URL na aba Config</div>';
+  }).catch(function(e) {
+    document.getElementById("lista-pac").innerHTML = '<div class="vazio"><big>⚠️</big>' + e.message + '</div>';
   });
 }
 
@@ -562,9 +595,22 @@ function pedeSenha(acao, idx, pacId) {
   document.getElementById("ov-senha").className = "overlay on";
   setTimeout(function() { document.getElementById("inp-senha").focus(); }, 100);
 }
-function fecharSenha() { document.getElementById("ov-senha").className = "overlay"; acaoSenha = null; }
+function fecharSenha() { if (acaoSenha && acaoSenha.acao === "login") return; document.getElementById("ov-senha").className = "overlay"; acaoSenha = null; }
 function okSenha() {
-  if (document.getElementById("inp-senha").value !== SENHA) { showEr("er-senha", "Senha incorreta"); return; }
+  var digitada = document.getElementById("inp-senha").value;
+  if (acaoSenha && acaoSenha.acao === "login") {
+    if (!digitada) { showEr("er-senha", "Digite a senha"); return; }
+    try { localStorage.setItem("pron_senha", digitada); } catch(e) {}
+    req({action:"verificar_senha"}).then(function() {
+      document.getElementById("ov-senha").className = "overlay"; acaoSenha = null;
+      carregarPacs();
+    }).catch(function(e) {
+      try { localStorage.removeItem("pron_senha"); } catch(x) {}
+      showEr("er-senha", e.message);
+    });
+    return;
+  }
+  if (digitada !== senhaGuardada()) { showEr("er-senha", "Senha incorreta"); return; }
   fecharSenha();
   if (!acaoSenha) return;
   if (acaoSenha.acao === 1) abreEdit(acaoSenha.idx, acaoSenha.pacId);
@@ -663,23 +709,22 @@ function selecionarPacEv() {
     if (todosP[i].id === id) { selPac(i); break; }
   }
 }
-function gerarLink(){var id=document.getElementById("sel-qr").value;var area=document.getElementById("link-area");if(!id){area.style.display="none";return;}document.getElementById("link-txt").textContent=BASE+"?modo=familia&paciente="+id;area.style.display="block";}
+function gerarLink(){var id=document.getElementById("sel-qr").value;var area=document.getElementById("link-area");if(!id){area.style.display="none";return;}var cod="";for(var i=0;i<todosP.length;i++){if(todosP[i].id===id){cod=todosP[i].codigo||"";break;}}if(!cod){alert("Este paciente ainda não tem código. Recarregue a página.");return;}document.getElementById("link-txt").textContent=BASE+"?modo=familia&codigo="+cod;area.style.display="block";}
 function copiarLink(){navigator.clipboard.writeText(document.getElementById("link-txt").textContent).then(function(){alert("Link copiado!");});}
 
-function carregarFam(pacId) {
-  get({action:"listar_pacientes"}).then(function(dp) {
-    var lista = dp.pacientes || [];
-    famPac = {nome:"—", diagnostico:"—"};
-    for (var i=0; i<lista.length; i++) { if (lista[i].id === pacId) { famPac = lista[i]; break; } }
-    var nasc = "";
-    try { if (famPac.data_nasc) nasc = new Date(famPac.data_nasc).toLocaleDateString("pt-BR"); } catch(e) {}
+function carregarFam(codigo) {
+  var famDados = null;
+  req({action:"familia", codigo:codigo||""}).then(function(dp) {
+    famDados = dp;
+    famPac = dp.paciente || {nome:"—", diagnostico:"—"};
+    var nasc = famPac.data_nasc || "";
     document.getElementById("fam-info").innerHTML =
       '<div style="font-size:10px;color:var(--roxo);font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:7px">Dados do paciente</div>' +
       '<div style="font-size:17px;font-weight:700;margin-bottom:5px">' + famPac.nome + '</div>' +
       (nasc ? '<div style="font-size:12px;color:#555">Nascimento: ' + nasc + '</div>' : '') +
       (famPac.diagnostico ? '<div style="font-size:12px;color:#555;margin-top:2px">' + famPac.diagnostico + '</div>' : '') +
       '<div style="font-size:11px;color:#aaa;margin-top:7px">Início: ' + (famPac.data_inicio || "—") + '</div>';
-    return get({action:"listar_evolucoes", paciente_id:pacId});
+    return famDados;
   }).then(function(de) {
     famEvs = (de.evolucoes || []).map(function(ev, i) {
       return {data:ev.data, hora_entrada:ev.hora_entrada, hora_saida:ev.hora_saida, evolucao:ev.evolucao, idx:i};
@@ -708,7 +753,7 @@ function carregarFam(pacId) {
       html+='</div>';
     }
     el.innerHTML=html;
-  }).catch(function(){document.getElementById("fam-lista").innerHTML='<div class="msg-er" style="display:block">Erro ao carregar.</div>';});
+  }).catch(function(e){document.getElementById("fam-lista").innerHTML='<div class="msg-er" style="display:block">'+e.message+'</div>';});
 }
 
 // ANOTAÇÕES PESSOAIS
@@ -734,7 +779,7 @@ function carregarAnotacoesEv(pacId) {
         + '<div style="font-size:12px;line-height:1.5;white-space:pre-wrap">' + a.texto + '</div>'
         + '</div>';
     }).join("");
-  }).catch(function() { el.innerHTML = ""; });
+  }).catch(function(e) { el.innerHTML = '<div style="font-size:11px;color:#c0392b">Erro ao carregar anotações: ' + e.message + '</div>'; });
 }
 
 function pedeSenhaAnot() {
@@ -770,7 +815,7 @@ function carregarAnotacoes(pacId) {
         + '<div style="font-size:13px;line-height:1.5;white-space:pre-wrap">' + a.texto + '</div>'
         + '</div>';
     }).join("");
-  }).catch(function() {});
+  }).catch(function(e) { document.getElementById("lista-anot").innerHTML = '<div style="font-size:12px;color:#c0392b">Erro ao carregar anotações: ' + e.message + '</div>'; });
 }
 
 function showOk(id){var e=document.getElementById(id);e.style.display="block";setTimeout(function(){e.style.display="none";},3000);}
